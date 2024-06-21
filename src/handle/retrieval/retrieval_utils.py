@@ -37,7 +37,7 @@ class Search(object):
             docs_set.add(doc.metadata['source'])
         return docs_set
     
-    def auto_merge(self, query, therehold=0.5):
+    def auto_merge(self, query, threshold=0.5):
         docs = self(query)
         sta = {}
         total = {}
@@ -48,7 +48,7 @@ class Search(object):
             else:
                 sta[doc.metadata['source']] = 1
         for source in sta:
-            if sta[source] > total[source] * therehold:
+            if sta[source] > total[source] * threshold:
                 docs = list(filter(lambda x: x.metadata['source'] != source, docs))
                 docs.append(load_docs(source))
         for i, doc in enumerate(docs):
