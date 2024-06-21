@@ -1,5 +1,5 @@
 api_key = {
-    'baichuan': 'sk-5c08af67360cd0ef9f6841adeb24080c',
+    'baichuan': 'sk-74a4c635c2f59615b2e5b044f9dcf64e',
     'deepseek': 'sk-e4d13bee26684e8fad6fbf9c286069d3'
 }
 
@@ -17,7 +17,11 @@ chat_config = {
         'chatglm3-6b': {
             'ip': '0.0.0.0',
             'port': 5001,
-        }
+        },
+        'Baichuan2-7B-Chat': {
+            'ip': 'u199040-a426-29f8b9a8.westc.gpuhub.com',
+            'port': 8443,
+        },
     },
     'online': {
         'Baichuan2-Turbo': {
@@ -54,7 +58,7 @@ chat_config = {
 
 class ModelConfig:
     embedding_model = 'bge-m3'
-    base_model = 'Baichuan2-Turbo'
+    base_model = 'Baichuan2-7B-Chat'
     is_online = base_model in chat_config['online']
 
 

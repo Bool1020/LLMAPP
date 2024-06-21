@@ -20,16 +20,17 @@ def post(history, is_stream=False, model_name=Model_Name):
             chat_config['online'][model_name]['url'],
             data=json_data,
             headers=chat_config['online'][model_name]['headers'],
-            timeout=60,
+            timeout=300,
             stream=is_stream
         )
     else:
         response = requests.post(
-            'http://{ip}:{port}/v1/chat/completions'.format(ip=chat_config['local'][model_name]['ip'], port=str(chat_config['local'][model_name]['port'])),
+            'https://{ip}:{port}/v1/chat/completions'.format(ip=chat_config['local'][model_name]['ip'], port=str(chat_config['local'][model_name]['port'])),
             data=json_data,
-            timeout=60,
+            timeout=300,
             stream=is_stream
         )
+        # print(response)
     return response
 
 

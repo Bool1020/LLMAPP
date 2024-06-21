@@ -44,6 +44,14 @@ def create_knowledge(dir_path, kg_name, split_strategy={'mode': 'auto'}):
     for path in tqdm(os.listdir(dir_path)):
         document = load_docs(dir_path+'/'+path)
         document_split += splitter.split_documents(document)
+    sta = {}
+    for doc in document_split:
+        if doc.metadata['source'] in sta:
+            sta[doc.metadata['source']] += 1
+        else:
+            sta[doc.metadata['source']] = 1
+    for doc in document_split:
+        doc.metadata['total'] = sta[doc.metadata['source']]
     faiss_index = FAISS.from_documents(document_split, embeddings)
     faiss_index.save_local('knowledge_base/vector_db/{}_index'.format(kg_name))
     return {'code': 1, 'message': '处理成功'}
