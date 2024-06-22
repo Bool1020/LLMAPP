@@ -18,7 +18,7 @@
 
 由Lewis在2020年中引入的RAG（Retrieval-Augmented Generation）是LLM领域的一个范例，显著增强了生成任务。具体来说，RAG涉及一个初始检索步骤，模型在此步骤中查询外部数据源以获取相关信息，然后再继续回答问题或生成文本。这个过程不仅为后续的生成阶段提供了信息，而且确保了响应基于检索到的证据，从而显著提高了输出的准确性和相关性。在推理阶段从知识库中动态检索信息使RAG能够解决诸如生成事实不正确的内容(通常称为“幻觉”[^15])之类的问题。将RAG集成到LLM中已经得到了迅速的采用，并已成为改进聊天机器人功能和使LLM更适合实际应用的关键技术。
 
-我们小组使用langchain框架为主体，实现了基于向量检索的大模型检索增强生成任务[^1]，可以自动在知识库中找到与用户问题相关的片段，辅助大模型生成答案。知识库方面，主要采用了CRAG_2735数据集和我们自己搜集到的NQ数据集[^9]；微调数据集方面，我们采用了CRAG_2735数据集，对数据集进行负样本挖掘和格式重构；指标方面，除了老师推荐的BLEU[^11]和Rouge-L[^12]，我们还将实现Bert-score[^10]，另外在BGE嵌入模型微调中，我们引入了MRR和nDCG指标，更全面地观察模型微调效果。
+我们小组使用langchain框架为主体，实现了基于向量检索的大模型检索增强生成任务[^1]，可以自动在知识库中找到与用户问题相关的片段，辅助大模型生成答案。知识库方面，主要采用了CRAG_200,CRAG_2735数据集和我们自己搜集到的NQ数据集[^9]；微调数据集方面，我们采用了CRAG_2735数据集，对数据集进行负样本挖掘和格式重构；指标方面，除了老师推荐的BLEU[^11]和Rouge-L[^12]，我们还将实现Bert-score[^10]，另外在BGE嵌入模型微调中，我们引入了MRR和nDCG指标，更全面地观察模型微调效果。
 
 检索方面，我们使用BGE系列[^7]检索模型和重排模型，BM25算法[^8]，以及最新提出的LLMlingua算法[^3]；生成模型方面，我们将使用闭源模型Baichuan[^5]，Deepseek[^6]，ChatGPT[^4]等模型，以及开源模型Baichuan2，Qwen[^13]，GLM3[^14]等模型。通过实现不同的RAG策略和评测标准，我们旨在探索和评估各种方法在检索增强生成领域的有效性和实用性。最后，我们通过大语言模型微调、BGE检索模型微调、以及检索策略优化、找回后处理等方式提升系统的性能。
 
@@ -58,8 +58,181 @@ NQ数据集，全称为Natural Questions数据集，是由Google发布的一种�
 | 实验2：微调BGE | RTX3090 (24G) x1  |
 | 实验3：微调LLM | RTX4090 (24G) x2  |
 
+#### 软件环境
+
+Ubuntu 22.04
+python 3.10
+Pytorch 2.3.0
+Cuda 12.1
+
+```shell
+conda create -n rag python=3.10
+conda init
+conda activate rag
+
+conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+
+
+```
+
 ## 基础任务
-这里说基础RAG的部分
+
+### 数据处理与索引构建 (Your Data -> Index)
+
+这一部分的流程包括系统将用户信息解析为字符串，对其进行切片和向量化处理，并最终存储到向量数据库中。这一过程的实现包括以下四个主要组件：
+
+#### 数据加载器 (dataloader)
+
+我们利用LangChain封装的文本解析器处理各种文件格式，包括txt、docx和pdf等。尽管LangChain在处理pdf文件时可能存在一些不足，但在处理其他格式时表现良好。这个解析器允许我们从这些文件中提取文本信息，以便后续分析和处理。
+
+```python
+def load_docs(path):
+    if path.endswith('.txt'):
+        loader = TextLoader(path)
+    elif path.endswith('.pdf'):
+        loader = PyPDFLoader(path)
+    elif path.endswith('.docx') or path.endswith('.doc'):
+        loader = Docx2txtLoader(path)
+    return loader.load()
+```
+
+#### 切片器 (splitter)
+
+切片方法上，我们采用了LangChain实现的递归型切片器，将长文档拆分为更小的文本片段。这样可以提高向量化处理的效率和精度，有助于更精准的文档检索和匹配，从功能上具体分为两种：
+
+- **自动分割策略**：根据预定义的分隔符和分块大小，自动将文档分割为更小的片段。
+- **用户定义分割策略**：允许用户自定义分隔符、分块大小和重叠部分，以满足特定需求。
+
+创建知识库和添加知识库的方法类似，以知识库的创建方法函数`create_knowledge`为例，先读取指定目录中的所有文档，并根据文件格式加载文档内容，然后使用递归分割器将文档分割为多个小块，并统计每个文档块的来源，为每个文档块添加总数元数据：
+
+```python
+    if split_strategy.get('mode') == 'auto':
+        splitter = RecursiveCharacterTextSplitter(
+            separators=['.', '!', '。', '!', '\n'],
+            keep_separator=False,
+            chunk_size=1024,
+            chunk_overlap=256,
+            length_function=len,
+        )
+    elif split_strategy.get('mode') == 'user-defined':
+        splitter = RecursiveCharacterTextSplitter(
+            separators=split_strategy.get('separators'),
+            keep_separator=False,
+            chunk_size=split_strategy.get('chunk_size'),
+            chunk_overlap=split_strategy.get('chunk_overlap'),
+            length_function=len,
+        )
+    else:
+        return {'code': 0, 'message': '处理失败'}
+    document_split = []
+    dir_path = dir_path + '/{}'.format(kg_name)
+    for path in tqdm(os.listdir(dir_path)):
+        document = load_docs(dir_path+'/'+path)
+        document_split += splitter.split_documents(document)
+    sta = {}
+    for doc in document_split:
+        if doc.metadata['source'] in sta:
+            sta[doc.metadata['source']] += 1
+        else:
+            sta[doc.metadata['source']] = 1
+    for doc in document_split:
+        doc.metadata['total'] = sta[doc.metadata['source']]
+```
+
+#### 向量存储 (vectorstore)
+
+FAISS（Facebook AI Similarity Search）是一种高效的相似性搜索库，能够在大规模向量数据中进行快速检索。我们使用LangChain封装的函数实现了FAISS向量存储库，在创建和添加知识库中利用向量存储知识库的内容。
+
+`create_knowledge`函数在递归分割后，使用 FAISS 库将分割后的文档块嵌入到向量空间中，并将索引保存到本地：
+
+```python
+    faiss_index = FAISS.from_documents(document_split, embeddings)
+    faiss_index.save_local('knowledge_base/vector_db/{}_index'.format(kg_name))
+    return {'code': 1, 'message': '处理成功'}
+```
+
+#### 嵌入模型 (embedding)
+
+嵌入模型的选择上，我们尝试了HuggingFace上开源的嵌入模型bge-m3和bge-small-en-v1.5，用于将文本转换为向量。bge-m3是一种性能优异的嵌入模型，能够捕捉文本中的语义信息，有助于提高检索精度，并且相较bge-small-en-v1.5，前者参数量更大，对于下游任务表现更好，后续我们在拓展任务中微调了bge-small-en-v1.5以尝试提升其检索能力。
+
+```python
+embedding_model = model_config.embedding_model
+embeddings = HuggingFaceEmbeddings(model_name=r'./models/{embedding_model}'.format(embedding_model=embedding_model))
+```
+
+### 用户查询处理 (User -> Index)
+
+该部分的流程涉及将用户的查询通过嵌入模型进行向量化处理，并根据相似度分数在文档中进行检索。具体实现组件如下：
+
+#### 检索器 (retriever)
+
+我们使用一个封装的检索器类来处理各种查询请求，用于从存储的向量化文档中进行检索。通过计算用户查询与存储文档之间的相似度分数，检索器可以有效地找出最相关的文档。并且，我们的检索器提供多种检索功能：可以根据查询提取文档内容、问答对、文档来源等信息，另外为了提升检索准确性并弥补知识库中知识的不足，我们的检索器包含自动合并和网络搜索的功能：
+
+其中，`Search` 类的核心功能是根据用户的查询在加载的文档中进行搜索，并返回相关的文档内容、问答内容或文档集合。以下是该功能的具体实现：
+
+- **搜索文档内容**：`search_for_content` 方法根据查询提取文档的内容。
+- **搜索问答对**：`search_for_qa` 方法根据查询提取问答对。
+- **搜索文档集合**：`search_for_docs` 方法根据查询提取文档的来源集合。
+
+```python
+def search_for_content(self, query):
+    docs = self(query)
+    for i, doc in enumerate(docs):
+        docs[i] = doc.page_content
+    return docs
+
+def search_for_qa(self, query):
+    docs = self(query)
+    for i, doc in enumerate(docs):
+        docs[i] = {'question': doc.page_content, 'answer': doc.metadata['answer']}
+    return docs
+
+def search_for_docs(self, query):
+    docs = self(query)
+    docs_set = set()
+    for i, doc in enumerate(docs):
+        docs_set.add(doc.metadata['source'])
+    return docs_set
+```
+
+- **自动合并**：`auto_merge` 方法通过设置阈值，自动合并搜索结果，去除重复文档，确保结果的多样性和准确性。该方法统计每个来源文档的数量，并根据指定的阈值过滤和重新加载文档。
+
+```python
+def auto_merge(self, query, threshold=0.5):
+    docs = self(query)
+    sta = {}
+    total = {}
+    for doc in docs:
+        total[doc.metadata['source']] = doc.metadata['total']
+        if doc.metadata['source'] in sta:
+            sta[doc.metadata['source']] += 1
+        else:
+            sta[doc.metadata['source']] = 1
+    for source in sta:
+        if sta[source] > total[source] * threshold:
+            docs = list(filter(lambda x: x.metadata['source'] != source, docs))
+            docs.append(load_docs(source))
+    for i, doc in enumerate(docs):
+        docs[i] = doc.page_content
+    return docs
+```
+
+- **网络搜索**：我们在检索器上添加了联网搜索的功能，以获取更广泛的信息源，补充本地文档的不足。`web_search` 方法使用 DuckDuckGo 搜索引擎执行网络搜索，返回搜索结果。
+
+```python
+def web_search(self, query):
+    search = DuckDuckGoSearchRun()
+    return [search.run(query)]
+```
+
+### 索引到大模型 (Index -> LLM)
+
+该部分的流程将检索到的相关文档添加到prompt中，作为输入提供给大语言模型（LLM）。需要实现的组件包括：
+
+#### 模型输入 (prompt)
+
+将检索到的相关文档组织成prompt，输入给大语言模型。设计有效的prompt是生成高质量回答的关键步骤，我们将根据具体任务和需求不断优化prompt设计。
+
 
 ## 自选拓展任务
 
