@@ -374,7 +374,10 @@ python -m FlagEmbedding.baai_general_embedding.finetune.eval_msmarco \
 
 ### 微调LLM
 
-微调baichuan2-7b的结果的Loss随训练轮次变化如下。
+微调baichuan2-7b的结果的Loss与accuracy随训练轮次变化如下。
+| ![Image 1](train_loss.png) | ![Image 2](train_acc.png) |
+|------------------------|------------------------|
+| ![Image 3](eval_loss.png) | ![Image 4](eval_acc.png) |
 
 微调结束后，我们将CRAG测试集中随机抽样240条作为评测集，固定其输入结果，即将人工标注的检索结果作为输入prompt的一部分，得到的结论是微调后的模型生成能力较微调前产生了显著的提升，甚至超过了baichuan2系列最好的模型baichuan2-turbo，结果如下
 |                    | BLEU     | ROUGE-L  | BERTScore |
