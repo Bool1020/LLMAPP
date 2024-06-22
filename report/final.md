@@ -306,9 +306,99 @@ python -m FlagEmbedding.baai_general_embedding.finetune.eval_msmarco \
 
 ### 对LLM进行进一步微调
 
-根据自己的算力情况，使用给定的CRAG数据对LLM做进一步的预训练或有监督微调
+#### 数据集
 
-对使用的LLM框架不做限制，可参考llama-factory,megatron-lm框架，以及阿里进行二次封装之后的Pai-Megatron-Patch框架
+微调时需要重构CRAG数据集，这里我们采用了`crag_200.jsonl`数据集，构造一个prompt模板。
+
+```python
+naive_rag = """Below, I will provide you with a reference text. Please use it to answer my question.
+    {content}
+
+    Question: {query}"""
+```
+
+context部分我们将CRAG中的snippet部分取出做拼接处理，query部分则是直接使用question部分；同样的，我们用这种方式构造推理阶段的模型输入，即在`crag_data_2735.jsonl`中抽样240条作为评测数据。
+
+#### 微调设置
+
+在微调过程中，我们选择了使用LoRA（Low-Rank Adaptation）技术对模型进行优化。LoRA是一种轻量级的微调方法，它通过在模型权重矩阵中引入低秩近似来减少微调过程中参数的数量。下面是我们选择LoRA的原因和具体的微调设置：
+
+1. 参数效率：LoRA通过在模型的权重矩阵上添加低秩矩阵，显著减少了需要微调的参数数量。这使得微调过程更加高效，减少了内存和计算资源的消耗。
+2. 快速微调：由于参数减少，LoRA能够更快地进行训练和收敛，适合需要在短时间内进行多次实验和调优的场景。
+3. 避免过拟合：LoRA通过限制参数更新的自由度，能够在一定程度上防止模型过拟合到训练数据上，增强模型的泛化能力。
+4. 兼容性好：LoRA能够轻松地集成到现有的大规模预训练模型中，无需对模型架构进行大幅修改，具有很好的兼容性。
+
+以下是我们使用通义团队设计的swift框架进行微调的参数，即我们的命令行代码。
+
+```shell
+nproc_per_node=2
+
+PYTHONPATH=../../.. \
+CUDA_VISIBLE_DEVICES=0,1 \
+torchrun
+    NPROC_PER_NODE=$nproc_per_node \
+    MASTER_PORT=29500 \
+    swift sft \
+        --model_id_or_path baichuan-inc/Baichuan2-7B-Chat \
+        --model_revision master \
+        --sft_type lora \
+        --tuner_backend peft \
+        --template_type AUTO \
+        --dtype AUTO \
+        --output_dir output \
+        --ddp_backend nccl \
+        --dataset /root/autodl-tmp/sft.jsonl \
+        --num_train_epochs 2 \
+        --max_length 4096 \
+        --check_dataset_strategy warning \
+        --lora_rank 8 \
+        --lora_alpha 32 \
+        --lora_dropout_p 0.05 \
+        --lora_target_modules ALL \
+        --gradient_checkpointing true \
+        --batch_size 1 \
+        --weight_decay 0.1 \
+        --learning_rate 1e-4 \
+        --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
+        --max_grad_norm 0.5 \
+        --warmup_ratio 0.03 \
+        --eval_steps 1 \
+        --save_steps 10 \
+        --save_total_limit 2 \
+        --logging_steps 1 \
+```
+
+#### 评估
+
+这部分代码中分别对模型预测结果的多项评估指标进行计算，并且分别计算了BLEU，ROUGE-L，BERTScore，三种指标的分数，用于评估模型生成阶段的表现。技术方面我们选择使用huggingface团队设计的metric模块，并对此进行二次封装。以下是具体的评估代码和详细说明：
+
+1. BLEU (Bilingual Evaluation Understudy)：BLEU是一种广泛使用的机器翻译和文本生成任务的评估指标，主要通过计算预测结果和参考文本的n-gram匹配程度来评估生成文本的质量。
+2. ROUGE-L：ROUGE-L是一种基于最长公共子序列（LCS）的评估方法，适用于评估生成文本与参考文本之间的相似度。它能够捕捉到文本中的长距离依赖关系和结构相似性。
+3. BERTScore：BERTScore利用预训练的BERT模型计算预测文本和参考文本的语义相似度。它通过比较文本的词嵌入向量，能够更准确地评估生成文本的语义一致性和流畅性。
+
+以下是我们的代码实现
+
+```python
+from nltk.translate.bleu_score import SmoothingFunction
+from evaluate import load
+
+bleu = load("./bleu.py")
+smooth = SmoothingFunction().method1
+rouge = load("./rouge.py")
+bertscore = load("./bertscore.py")
+
+def compute_bleu(reference, candidate):
+    scores = bleu.compute(predictions=candidate, references=reference, smooth=smooth)['bleu']
+    return scores
+
+def compute_rouge_l(reference, candidate):
+    scores = rouge.compute(predictions=candidate, references=reference, rouge_types=['rougeL'])['rougeL']
+    return scores
+
+def compute_bert_score(reference, candidate):
+    scores = bertscore.compute(predictions=candidate, references=reference, lang="en", model_type="bert-base-uncased")['f1'][0]
+    return scores
+```
 
 ## 实验结果与分析
 
