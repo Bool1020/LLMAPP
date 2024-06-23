@@ -741,10 +741,10 @@ def compute_bert_score(reference, candidate):
 
 ### 基础任务
 
-基础rag效果展示（左图是未加入RAG的结果，右图是加入了RAG的结果）
+基础rag效果展示（上图是未加入RAG的结果，下图是加入了RAG的结果）
 
-| ![Image b](before.png) | ![Image a](after.png) |
-|------------------------|------------------------|
+![Image b](before.png) 
+![Image a](after.png)
 
 在对RAG（Retrieval-Augmented Generation）模型前后问答结果的分析中，可以观察到显著的改进。RAG模型结合了信息检索和生成的能力，能够在生成答案之前通过检索阶段获取更多的背景信息。以问题“Please introduce Elon.”为例，进行了RAG前后的对比：
 
