@@ -229,7 +229,36 @@ def web_search(self, query):
 
 ### 索引到大模型 (Index -> LLM)
 
-该部分的流程将检索到的相关文档添加到prompt中，作为输入提供给大语言模型（LLM）。需要实现的组件包括：
+在将检索到的文档输入大模型前，我们加入重排序和优化prompt的过程，以进一步提升回答的质量，并作为输入提供给大语言模型（LLM）。需要实现的组件包括：
+
+#### 重排序器（reranker）
+
+首先，我们对检索结果进行重新排序构建了一个reranker的过程，在这里我们尝试了多种reranker的模型，包含bge_reranker_rank、bge_llmembedder_rank和sentbert_rank等，通过`tokenizer`编码然后输入给重排模型进行前向推理，然后计算每个内容的得分，将内容和对应的得分结合后按得分从高到低排序。
+
+```python
+class Reranker(object):
+    def __init__(self, tokenizer, model):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.model.eval()
+
+    def compute_score(self, pairs):
+        with torch.no_grad():
+            inputs = self.tokenizer(pairs, padding=True, truncation=True, return_tensors='pt', max_length=512)
+            scores = self.model(**inputs, return_dict=True).logits.view(-1, ).float()
+        return scores
+
+    def __call__(self, query, content):
+        pairs = []
+        for i in range(len(content)):
+            pairs.append([query, content[i]])
+        scores = self.compute_score(content)
+        combined = list(zip(content, scores))
+        sorted_combined = sorted(combined, key=lambda x: x[1], reverse=True)
+        sorted_list, sorted_scores = zip(*sorted_combined)
+
+        return list(sorted_list)
+```
 
 #### 模型输入 (prompt)
 
@@ -715,9 +744,9 @@ def compute_bert_score(reference, candidate):
 
 ### 检索方法优化
 
-![alt text](reranker.png)
+我们尝试了多种排序算法的性能，绘制出图表更直观地展示不同算法的性能差别。横坐标n表示在检索结果的前n个条目中，成功找到的相关项的个数，纵坐标表示相应的召回率：
 
-这张图比较了多种排序算法的性能。横坐标表示recall@n中的n，纵坐标表示相应的召回率。
+![alt text](reranker.png)
 
 1. **bge_reranker_rank（紫色线）**：
    - 在所有的n值上，该算法的召回率表现最好。
@@ -743,7 +772,8 @@ def compute_bert_score(reference, candidate):
    - 作为传统的信息检索算法，bm25的召回率在所有n值上都明显低于其他模型。
    - 它的召回率呈线性提升，速度较慢。
 
-总结
+对于这个不同的reranker，我们总结为：
+
 - **最佳表现**：bge_reranker_rank和bge_llmembedder_rank在所有n值上均表现出色，显示了其在召回率方面的优势。
 - **中等表现**：sentbert_rank表现也非常好，紧随其后。
 - **一般表现**：gzip_rank在较大n值时表现不错，但起步稍慢。
@@ -757,7 +787,7 @@ def compute_bert_score(reference, candidate):
 ![alt text](loss.png)
 
 微调150轮次总共2515个steps，我们每隔500步保存模型并用四个指标对模型的检索能力进行评估，得到的结论是微调后的模型检索能力较微调前产生了显著的提升，但是随训练轮次提升而只有较小的提升。我们猜想原因可能是原嵌入模型的参数规模较小，也有一个潜在的原因是这几个指标还不能将模型检索的能力完全量化，即仍存在更适用的评测指标。
-好的，我们将这些数据填入到表格中，精确到小数点后四位。
+
 |                                     | MRR@10   | MRR@100  | Recall@10 | Recall@100 | AUC@100  | nDCG@10  | nDCG@100 |
 | ----------------------------------- | -------- | -------- | --------- | ---------- | -------- | -------- | -------- |
 | bge-small-en-v1.5                   | 0.1053   | 0.1128   | 0.3053    | 0.4954     | 0.7528   | 0.1624   | 0.2067   |
