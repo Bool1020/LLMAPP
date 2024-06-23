@@ -74,8 +74,11 @@ conda init
 conda activate rag
 
 conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install langchain-community==0.0.18
+pip install langchain==0.1.5
 
-
+cd LLMAPP
+pip install -r requirements.txt
 ```
 
 ## RAG系统框架
@@ -739,12 +742,20 @@ def compute_bert_score(reference, candidate):
 
 ## 实验结果与分析
 
-### 基础任务
+### RAG系统展示
 
-基础rag效果展示（上图是未加入RAG的结果，下图是加入了RAG的结果）
+在未做检索增强和微调嵌入模型和LLM前，我们对当前系统的查询效果进行测试，下面是简单的效果展示：
+（图a是未加入RAG的结果，图b是加入RAG的结果）
 
-![Image b](before.png) 
-![Image a](after.png)
+<div style="text-align: center;">
+    <img src="before.png" alt="Image a" style="width: 150%;">
+    <div>未加入RAG系统</div>
+</div>
+
+<div style="text-align: center;">
+    <img src="after.png" alt="Image b" style="width: 150%;">
+    <div>加入RAG系统</div>
+</div>
 
 在对RAG（Retrieval-Augmented Generation）模型前后问答结果的分析中，可以观察到显著的改进。RAG模型结合了信息检索和生成的能力，能够在生成答案之前通过检索阶段获取更多的背景信息。以问题“Please introduce Elon.”为例，进行了RAG前后的对比：
 
@@ -830,11 +841,12 @@ def compute_bert_score(reference, candidate):
 | baichuan2-7b       | 0.0672   | 0.1529   | 0.4216    |
 |**baichuan2-7b-sft**|**0.4388**|**0.2398**|**0.5564** |
 
-## 系统演示说明
+## 总结与展望
 
-## 总结与反思
+以上就是我们小组围绕大模型检索增强生成题目完成的主要工作的过程和结果展示，为了尝试和了解LangChain架构，我们手动完成了RAG系统的搭建和改进，包含从大语言模型的部署开始，我们通过引入递归切分和嵌入模型完成知识库的构建，实现基础的RAG系统，然后通过改进提示词，加入重排模型提升检索准确率，以及使用`auto-merge`的方法进一步提升信息检索的准确性，实现我们改进后的RAG系统框架。最后通过检索增强、微调嵌入模型和微调大语言模型的三种方法进一步提升系统的能力，并探索系统其他可改进的方向。
 
-## 参考文献
+最后，我们通过一段系统演示视频更清晰地展示我们小组的成果，包含对RAG系统检索和重排过程的解析和最后微调结果的展示和说明，视频另附上传的文件中。
+
 
 [^1]: Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Qianyu Guo, Meng Wang, Haofen Wang. Retrieval-Augmented Generation for Large Language Models: A Survey. arXiv:2312.10997, November 2023.
 [^2]: Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, Douwe Kiela. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. NeurIPS 2020, December 2020.
