@@ -446,14 +446,14 @@ torchrun --nproc_per_node 1 \
 - **Mean Reciprocal Rank (MRR)**
     MRR 衡量查询结果排序质量的指标。具体来说，它计算每个查询结果中第一个相关结果的倒数位置的平均值。公式如下：
 
-    \[ \text{MRR} = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank}_i} \]
+    $$ \text{MRR} = \frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank}_i} $$
 
-    其中，\(\text{rank}_i\) 是第 \(i\) 个查询的第一个相关结果的排名。
+    其中，$\text{rank}_i$ 是第 $i$ 个查询的第一个相关结果的排名。
 
 - **Recall**
     Recall 衡量检索系统中找回的相关结果与所有相关结果的比率。公式如下：
 
-    \[ \text{Recall} = \frac{|\text{relevant documents retrieved}|}{|\text{relevant documents}|} \]
+    $$ \text{Recall} = \frac{|\text{relevant documents retrieved}|}{|\text{relevant documents}|} $$
 
 - **Area Under Curve (AUC)**
     AUC 是ROC（Receiver Operating Characteristic）曲线下面积的缩写，用于评估二分类模型的性能。ROC曲线展示了分类器在各种阈值下的表现，AUC值越接近1表示模型性能越好。
@@ -461,7 +461,7 @@ torchrun --nproc_per_node 1 \
 - **Normalized Discounted Cumulative Gain (nDCG)**
     nDCG 适用于多级相关性评估，通过计算实际排序与理想排序之间的差异来衡量排序质量。公式如下：
 
-    \[ \text{nDCG} = \frac{DCG}{IDCG} \]
+    $$ \text{nDCG} = \frac{DCG}{IDCG} $$
 
     其中，DCG（Discounted Cumulative Gain）和IDCG（Ideal Discounted Cumulative Gain）分别表示实际排序和理想排序的折扣累积增益。
 
@@ -543,11 +543,29 @@ torchrun
 
 #### 评估
 
-这部分代码中分别对模型预测结果的多项评估指标进行计算，并且分别计算了BLEU，ROUGE-L，BERTScore，三种指标的分数，用于评估模型生成阶段的表现。技术方面我们选择使用huggingface团队设计的metric模块，并对此进行二次封装。以下是具体的评估代码和详细说明：
+在这部分代码中，我们对模型预测结果的多项评估指标进行了计算，具体包括BLEU，ROUGE-L，和BERTScore三个指标。这些指标用于评估模型在生成任务中的表现。我们使用了Huggingface团队设计的metric模块，并对其进行了二次封装，以适应我们的需求。以下是具体的评估代码和详细说明：
 
-1. BLEU (Bilingual Evaluation Understudy)：BLEU是一种广泛使用的机器翻译和文本生成任务的评估指标，主要通过计算预测结果和参考文本的n-gram匹配程度来评估生成文本的质量。
-2. ROUGE-L：ROUGE-L是一种基于最长公共子序列（LCS）的评估方法，适用于评估生成文本与参考文本之间的相似度。它能够捕捉到文本中的长距离依赖关系和结构相似性。
-3. BERTScore：BERTScore利用预训练的BERT模型计算预测文本和参考文本的语义相似度。它通过比较文本的词嵌入向量，能够更准确地评估生成文本的语义一致性和流畅性。
+- **BLEU (Bilingual Evaluation Understudy)**
+    BLEU是一种广泛使用的机器翻译和文本生成任务的评估指标。它通过计算预测结果和参考文本的n-gram匹配程度，来评估生成文本的质量。公式如下：
+
+    $$ \text{BLEU} = \exp \left( \sum_{n=1}^{N} w_n \log p_n \right) $$
+
+    其中，$w_n$ 是权重，$p_n$ 是预测结果和参考文本的n-gram匹配率。
+
+- **ROUGE-L**
+    ROUGE-L是一种基于最长公共子序列（LCS）的评估方法，适用于评估生成文本与参考文本之间的相似度。它能够捕捉到文本中的长距离依赖关系和结构相似性。公式如下：
+
+    $$ \text{ROUGE-L} = \frac{LCS(X, Y)}{|Y|} $$
+
+    其中，$LCS(X, Y)$ 是生成文本 $X$ 和参考文本 $Y$ 的最长公共子序列的长度。
+
+- **BERTScore**
+    BERTScore利用预训练的BERT模型计算预测文本和参考文本的语义相似度。它通过比较文本的词嵌入向量，能够更准确地评估生成文本的语义一致性和流畅性。公式如下：
+
+    $$ \text{BERTScore} = \frac{1}{N} \sum_{i=1}^{N} \text{cosine-sim}(e_{x_i}, e_{y_i}) $$
+
+    其中，$\text{cosine-sim}(e_{x_i}, e_{y_i})$ 是生成文本和参考文本中对应词的BERT嵌入向量的余弦相似度。
+
 
 以下是我们的代码实现
 
