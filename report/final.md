@@ -233,6 +233,112 @@ def web_search(self, query):
 
 将检索到的相关文档组织成prompt，输入给大语言模型。设计有效的prompt是生成高质量回答的关键步骤，我们将根据具体任务和需求不断优化prompt设计。
 
+```python
+naive_rag = """Below, I will provide you with a reference text. Please use it to answer my question.
+    {content}
+
+    Question: {query}"""
+```
+
+#### 模型api
+
+我们封装了一个POST方法接口，用于发送请求到模型。此接口会根据配置文件判断模型是在线部署还是本地部署，并将请求发送到相应的地址。
+
+```python
+def post(history, is_stream=False, model_name=Model_Name):
+    data = {
+        'model': model_name,
+        'messages': history,
+        'stream': is_stream
+    }
+    json_data = json.dumps(data)
+    if model_config.is_online:
+        response = requests.post(
+            chat_config['online'][model_name]['url'],
+            data=json_data,
+            headers=chat_config['online'][model_name]['headers'],
+            timeout=300,
+            stream=is_stream
+        )
+    else:
+        response = requests.post(
+            'https://{ip}:{port}/v1/chat/completions'.format(ip=chat_config['local'][model_name]['ip'], port=str(chat_config['local'][model_name]['port'])),
+            data=json_data,
+            timeout=300,
+            stream=is_stream
+        )
+    return response
+```
+这个`post`函数根据我们配置的config文件来判断模型是在线部署还是本地部署。对于在线部署，它会使用在线配置中的URL和请求头信息发送请求。对于本地部署，它会使用本地配置中的IP和端口信息发送请求。请求数据以JSON格式发送，包含模型名称、消息历史记录以及是否以流式方式返回结果。
+
+此外，我们还封装了一个`model_message`函数，用于处理用户查询和上下文，并确定是否以流式输出返回结果：
+
+```python
+def model_message(query, history=[], is_stream=False, model_name=Model_Name):
+    history.append(
+        {
+            'role': 'user',
+            'content': query
+        }
+    )
+    response = post(history, is_stream=is_stream, model_name=model_name)
+    if is_stream:
+        history.append({'role': 'assistant', 'content': ''})
+        for line in response.iter_lines(decode_unicode=True):
+            if 'data: ' in line:
+                if line.replace('data: ', '') == '[DONE]':
+                    break
+                else:
+                    result = json.loads(line.replace('data: ', ''))['choices'][0]['delta']
+                    if not result.get('content'):
+                        continue
+                    history[-1]['content'] += result['content']
+                    yield result['content'], history
+    else:
+        result = response.json()['choices'][0]['message']
+        history.append(result)
+        yield result['content'], history
+```
+
+这个`model_message`函数首先将用户的查询追加到历史记录中，并调用post函数发送请求。如果是流式输出模式，函数会在历史记录中追加一个空的助手响应，然后逐行读取服务器返回的数据。对于每一行数据，函数会解析出助手的响应内容，并将其追加到历史记录中，最后返回生成的响应内容和更新后的历史记录。如果不是流式输出模式，函数直接解析服务器返回的JSON响应，并将助手的响应追加到历史记录中，返回响应内容和历史记录。
+
+最后，我们定义了一个`chat`函数，该函数集成了检索和重排序方法，以便处理更复杂的对话需求：
+
+```python
+def chat(query, history=[], retriever=None, is_stream=False, model_name=Model_Name, reranker=None):
+    if retriever:
+        content = retriever.search_for_content(query)
+        if reranker:
+            content = reranker(content)
+        content = '\n\n'.join(content)
+        if is_stream:
+            return model_message(naive_rag.format(content=content, query=query), history=history, is_stream=is_stream, model_name=model_name)
+        else:
+            response, history = next(model_message(naive_rag.format(content=content, query=query), history=history, is_stream=is_stream, model_name=model_name))
+            return response, history
+    else:
+        if is_stream:
+            return model_message(query, history=history, is_stream=is_stream, model_name=model_name)
+        else:
+            response, history = next(model_message(query, history=history, is_stream=is_stream, model_name=model_name))
+            return response, history
+```
+
+#### 开源模型部署
+
+开源模型部署方面，我们选择使用vllm。vllm是一种专为高效部署和执行大规模语言模型而设计的开源工具。它提供了高效的推理性能、分布式部署能力以及简化的开发流程，使得在不同环境中部署复杂的语言模型变得更加容易和高效。
+
+vllm的主要特点包括：
+
+1. **高效的推理性能**：通过优化内存管理和计算资源的使用，vllm能够在保持模型性能的同时减少推理时间。
+2. **分布式部署**：支持多节点分布式部署，能够在多个GPU和服务器之间分配计算任务，提高处理能力。
+3. **简化的开发流程**：提供丰富的API和工具，简化了模型部署和管理的流程。
+
+以下是使用vllm进行模型部署的示例代码：
+
+```shell
+python -m vllm.entrypoints.openai.api_server --host 0.0.0.0 --port 5001 --model pretrained_models/Baichuan2-13B-Chat --served-model-name Baichuan2-13B-Chat --trust-remote-code
+```
 
 ## 自选拓展任务
 
